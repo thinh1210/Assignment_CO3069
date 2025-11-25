@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # Dịch vụ 1: MQTT Broker
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto-broker
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./MQTT/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./MQTT/config/pwfile:/mosquitto/config/pwfile
+      - ./MQTT/data:/mosquitto/data
+      - ./MQTT/log:/mosquitto/log
+    restart: unless-stopped
+
+  # Dịch vụ 2: Python Backend (API & Key Manager)
+  backend:
+    build: ./server
+    container_name: python-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=admin
+      - MQTT_PASS=123456
+      # Đường dẫn file key bên trong container
+      - KEY_PATH=/shared/aes_key.bin
+    volumes:
+      # Map thư mục shared_keys ở máy thật vào /shared trong container
+      - ./shared_keys:/shared
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  # Dịch vụ 3: Python Decoder (Giải mã bản tin MQTT)
+  decoder:
+    build: ./server
+    container_name: mqtt-decoder
+    # python -u để in log ngay lập tức
+    command: [ "python", "-u", "decoder.py" ]
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=admin
+      - MQTT_PASS=123456
+      # Đường dẫn file key bên trong container (phải giống backend)
+      - KEY_PATH=/shared/aes_key.bin
+    volumes:
+      # Map cùng một thư mục để 2 bên nhìn thấy nhau
+      - ./shared_keys:/shared
+    depends_on:
+      - mosquitto
+      - backend
+    restart: unless-stopped
+
+# Không cần khai báo volumes top-level nữa vì ta dùng đường dẫn trực tiếp (./shared_keys)
